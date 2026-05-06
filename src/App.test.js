@@ -7,7 +7,7 @@ describe('App.vue', () => {
     const wrapper = mount(App)
     const banner = wrapper.find('.deploy-banner')
     expect(banner.exists()).toBe(true)
-    expect(banner.text()).toContain('THIS_WILL_FAIL_THE_TEST')
+    expect(banner.text()).toContain('DEPLOYED')
   })
 
   it('renders title and intro', () => {
