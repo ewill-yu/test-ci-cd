@@ -1,7 +1,6 @@
 <script setup>
 import { ref } from 'vue'
 
-const willBreakLint = 'this variable is intentionally unused to fail CI'
 const count = ref(0)
 const buildTime = new Date().toISOString()
 </script>
