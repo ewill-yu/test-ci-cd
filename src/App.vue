@@ -7,7 +7,7 @@ const buildTime = __BUILD_TIME__
 </script>
 
 <template>
-  <div class="deploy-banner">🚀 DEPLOYED v2 · build at {{ buildTime }}</div>
+  <div class="deploy-banner">🚀 DEPLOYED v3 · build at {{ buildTime }}</div>
   <main class="container">
     <h1>test-ci-cd</h1>
     <p>Vue3 + Vite + Docker + GitHub Actions self-hosted runner</p>
