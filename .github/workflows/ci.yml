@@ -115,3 +115,21 @@ jobs:
           sleep 3
           curl --fail --silent --show-error --retry 5 --retry-delay 2 http://localhost:8080 > /dev/null
           echo "Prod OK: http://localhost:8080"
+
+      - name: Cleanup old images and build cache
+        if: success()
+        run: |
+          echo "--- before cleanup ---"
+          docker system df
+          # Keep newest 5 sha-tagged test-ci-cd-app images, remove older sha tags
+          docker images test-ci-cd-app --format '{{.Tag}}' \
+            | grep -E '^[a-f0-9]{40}$' \
+            | tail -n +6 \
+            | sed 's|^|test-ci-cd-app:|' \
+            | xargs -r docker rmi 2>/dev/null || true
+          # Remove dangling (untagged) images
+          docker image prune -f || true
+          # Trim build cache older than 7 days
+          docker builder prune -f --filter 'until=168h' || true
+          echo "--- after cleanup ---"
+          docker system df
