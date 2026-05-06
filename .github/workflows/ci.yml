@@ -1,0 +1,68 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint & format check
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Prettier check
+        run: pnpm format:check
+
+  deploy:
+    name: Build image & deploy on local runner
+    needs: lint
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t test-ci-cd-app:${{ github.sha }} \
+            -t test-ci-cd-app:latest \
+            .
+
+      - name: Replace running container
+        run: |
+          docker rm -f test-ci-cd-app 2>/dev/null || true
+          docker run -d \
+            --name test-ci-cd-app \
+            --restart unless-stopped \
+            -p 8080:80 \
+            test-ci-cd-app:latest
+
+      - name: Smoke test
+        run: |
+          sleep 3
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 http://localhost:8080 > /dev/null
+          echo "Deployment OK: http://localhost:8080"
+
+      - name: Prune old images
+        if: success()
+        run: |
+          docker image prune -f --filter "label!=keep" || true
