@@ -63,8 +63,8 @@ jobs:
       - name: Replace staging container
         env:
           APP_ENV: staging
-          APP_TOKEN: staging-token-abc123
-          APP_URL: https://api-staging.example.com
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+          APP_URL: ${{ vars.APP_URL }}
         run: |
           docker rm -f test-ci-cd-app-staging 2>/dev/null || true
           docker run -d \
@@ -96,8 +96,8 @@ jobs:
       - name: Replace prod container
         env:
           APP_ENV: production
-          APP_TOKEN: prod-token-xyz789
-          APP_URL: https://api.example.com
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+          APP_URL: ${{ vars.APP_URL }}
         run: |
           docker rm -f test-ci-cd-app 2>/dev/null || true
           docker rm -f test-ci-cd-app-prod 2>/dev/null || true
