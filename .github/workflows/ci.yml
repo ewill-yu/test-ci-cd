@@ -61,12 +61,19 @@ jobs:
             .
 
       - name: Replace staging container
+        env:
+          APP_ENV: staging
+          APP_TOKEN: staging-token-abc123
+          APP_URL: https://api-staging.example.com
         run: |
           docker rm -f test-ci-cd-app-staging 2>/dev/null || true
           docker run -d \
             --name test-ci-cd-app-staging \
             --restart unless-stopped \
             -p 8081:80 \
+            -e APP_ENV \
+            -e APP_TOKEN \
+            -e APP_URL \
             test-ci-cd-app:${{ github.sha }}
 
       - name: Smoke test staging
@@ -87,6 +94,10 @@ jobs:
         run: docker tag test-ci-cd-app:${{ github.sha }} test-ci-cd-app:prod
 
       - name: Replace prod container
+        env:
+          APP_ENV: production
+          APP_TOKEN: prod-token-xyz789
+          APP_URL: https://api.example.com
         run: |
           docker rm -f test-ci-cd-app 2>/dev/null || true
           docker rm -f test-ci-cd-app-prod 2>/dev/null || true
@@ -94,6 +105,9 @@ jobs:
             --name test-ci-cd-app-prod \
             --restart unless-stopped \
             -p 8080:80 \
+            -e APP_ENV \
+            -e APP_TOKEN \
+            -e APP_URL \
             test-ci-cd-app:${{ github.sha }}
 
       - name: Smoke test prod

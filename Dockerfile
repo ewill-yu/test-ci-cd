@@ -13,5 +13,7 @@ RUN pnpm build
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-entrypoint.d/40-write-app-env.sh /docker-entrypoint.d/40-write-app-env.sh
+RUN chmod +x /docker-entrypoint.d/40-write-app-env.sh
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
