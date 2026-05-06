@@ -6,15 +6,15 @@
 
 ## 技術選型
 
-| 項目       | 工具                                |
-| ---------- | ----------------------------------- |
-| 框架       | Vue 3 + Vite 6                      |
-| 套件管理   | pnpm                                |
-| 程式碼風格 | ESLint 9（flat config）+ Prettier   |
-| 容器       | Docker（多階段 build）              |
-| Web server | Nginx（serve dist）                 |
-| CI/CD      | GitHub Actions + self-hosted runner |
-| 部署目標   | 本機 Docker 容器（port `8080`）     |
+| 項目       | 工具                                                |
+| ---------- | --------------------------------------------------- |
+| 框架       | Vue 3 + Vite 6                                      |
+| 套件管理   | pnpm                                                |
+| 程式碼風格 | ESLint 9（flat config）+ Prettier                   |
+| 容器       | Docker（多階段 build）                              |
+| Web server | Nginx（serve dist）                                 |
+| CI/CD      | GitHub Actions + self-hosted runner                 |
+| 部署目標   | staging（port `8081`）+ prod（port `8080`）兩段部署 |
 
 ---
 
@@ -22,12 +22,14 @@
 
 ```bash
 pnpm install
-pnpm dev          # http://localhost:5173
-pnpm lint         # ESLint
-pnpm format:check # Prettier check
-pnpm test         # Vitest（一次性）
-pnpm test:watch   # Vitest（watch 模式）
-pnpm build        # 產出 dist/
+pnpm dev            # http://localhost:5173
+pnpm lint           # ESLint
+pnpm format:check   # Prettier check
+pnpm test           # Vitest（一次性）
+pnpm test:watch     # Vitest（watch 模式）
+pnpm test:coverage  # Vitest + 覆蓋率報告（含閾值檢查）
+pnpm audit          # 依賴漏洞掃描（high+ 才算 fail）
+pnpm build          # 產出 dist/
 ```
 
 ---
@@ -103,19 +105,25 @@ git push origin main
 
 依序檢查：
 
-1. **GitHub → Actions**：看到 `CI/CD` workflow 在 `self-hosted` runner 上跑，`lint` job 通過後 `deploy` job 才執行。
-2. **本機**：`docker ps` 應看到 `test-ci-cd-app` 容器。
-3. **瀏覽器**：開 http://localhost:8080 看到 Vue 預設頁面。
+1. **GitHub → Actions**：`verify` 通過後 `deploy-staging` 自動跑，再串到 `deploy-prod`。
+2. **本機**：`docker ps` 應看到 `test-ci-cd-app-staging`（port 8081）與 `test-ci-cd-app-prod`（port 8080）兩個容器。
+3. **瀏覽器**：staging http://localhost:8081、prod http://localhost:8080，banner build 時間相同（同一份 image）。
 
-### 故意讓 CI 失敗（驗證 lint gate 真的有把關）
+### 故意讓 verify 失敗（驗證 gate 真的有把關）
+
+任一個都會擋下整個部署：
+
+- 加未使用變數 → ESLint fail
+- 改錯一個 `expect` → Vitest fail
+- 刪掉測試 → coverage 跌破閾值 → fail
+- 出現 high+ CVE 的依賴 → audit fail
 
 ```bash
-# 在 src/App.vue 隨手寫一個 lint error，例如未使用的變數
-git commit -am "test: break lint"
+git commit -am "test: 故意壞 verify"
 git push origin main
 ```
 
-`lint` job 會 fail、`deploy` 不會執行、本機容器維持原版本。
+`verify` 會紅、`deploy-staging` 與 `deploy-prod` 都被 skipped、本機容器維持上一版。
 
 ---
 
@@ -123,31 +131,38 @@ git push origin main
 
 `.github/workflows/ci.yml` 兩個 job、皆 `runs-on: self-hosted`：
 
-| Job      | 觸發           | 動作                                                                             |
-| -------- | -------------- | -------------------------------------------------------------------------------- |
-| `verify` | push + PR      | `pnpm install` → `pnpm lint` → `pnpm format:check` → `pnpm test`                 |
-| `deploy` | push 到 `main` | `docker build` → 重啟容器 (`docker rm -f` + `docker run -d`) → `curl` smoke test |
+| Job              | 觸發           | 動作                                                                                             |
+| ---------------- | -------------- | ------------------------------------------------------------------------------------------------ |
+| `verify`         | push + PR      | install → lint → format:check → **test:coverage**（90/80/90/90 閾值）→ **audit**（high+）        |
+| `deploy-staging` | push 到 `main` | build image (`:sha` + `:staging`) → `docker run -p 8081:80` → smoke test http://localhost:8081   |
+| `deploy-prod`    | needs staging  | `docker tag :prod` → 砍舊 prod 容器 → `docker run -p 8080:80` → smoke test http://localhost:8080 |
 
-部署策略：**直接砍舊容器再起新的**（`--restart unless-stopped`）。Image tag 同時打 `:latest` 與 `:<git-sha>` 方便回滾（`docker run ... test-ci-cd-app:<sha>`）。
+部署為兩段：staging（port 8081）通過後才走 prod（port 8080）。
+若想讓 prod 加上「人工核准」閘門：到 GitHub repo → **Settings → Environments → production → Required reviewers** 勾你自己；之後 `deploy-prod` 會卡在 waiting，必須在 Actions 頁面按 Approve 才會跑。
+（`staging` environment 不勾 reviewer 即自動部署。）
+
+部署策略：**直接砍舊容器再起新的**（`--restart unless-stopped`）。Image tag 在 staging build 時打 `:<git-sha>` + `:staging`，prod 額外加 `:prod`，方便回滾（`docker run ... test-ci-cd-app:<sha>` 用任何過去成功 build 的 sha 起容器）。
 
 ---
 
 ## 6. 疑難排解
 
-| 症狀                        | 排查                                                                      |
-| --------------------------- | ------------------------------------------------------------------------- |
-| Workflow 卡在 queued        | runner 沒在跑（`./run.sh` 視窗關了 / svc stop）。重啟。                   |
-| `docker: command not found` | 開 Docker Desktop；svc 模式下檢查 PATH。                                  |
-| `port 8080 already in use`  | `lsof -i :8080` 看誰佔用，或改 workflow 的 host port。                    |
-| `pnpm: command not found`   | workflow 已用 `pnpm/action-setup@v4` 自動安裝；如失敗確認 runner 能上網。 |
-| 註冊時 401/403              | token 過期了，到 Settings 重生一個。                                      |
+| 症狀                           | 排查                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| Workflow 卡在 queued           | runner 沒在跑（`./run.sh` 視窗關了 / svc stop）。重啟。                                   |
+| `docker: command not found`    | 開 Docker Desktop；svc 模式下檢查 PATH。                                                  |
+| `port 8080 already in use`     | `lsof -i :8080`（或 `:8081`）看誰佔用，或改 workflow 的 host port。                       |
+| prod 卡在 `Waiting for review` | `production` environment 設了 reviewer，到 Actions 頁按 Approve；不想要就把 reviewer 移除 |
+| `pnpm: command not found`      | workflow 已用 `pnpm/action-setup@v4` 自動安裝；如失敗確認 runner 能上網。                 |
+| 註冊時 401/403                 | token 過期了，到 Settings 重生一個。                                                      |
 
 ---
 
 ## 7. 範圍外（未來可擴充）
 
-- TypeScript / Vitest / Vue Router / Pinia
-- 多平台 image（buildx）、push 到 registry
+- TypeScript / Vue Router / Pinia
+- 多平台 image（buildx）、push 到 GHCR / Docker Hub
 - HTTPS / reverse proxy
-- 多環境（staging / prod）
-- 通知（Slack / email）
+- E2E 測試（Playwright）、Lighthouse CI、Bundle size budget
+- 通知（Slack / email）、Sentry release tag
+- semantic-release / release-please（自動 tag + CHANGELOG）

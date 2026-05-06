@@ -7,7 +7,7 @@ on:
 
 jobs:
   verify:
-    name: Lint, format, test
+    name: Lint, format, test, audit
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +32,20 @@ jobs:
       - name: Prettier check
         run: pnpm format:check
 
-      - name: Vitest
-        run: pnpm test
+      - name: Vitest with coverage
+        run: pnpm test:coverage
 
-  deploy:
-    name: Build image & deploy on local runner
+      - name: Dependency audit (high+)
+        run: pnpm audit --audit-level=high --prod
+
+  deploy-staging:
+    name: Deploy to staging (port 8081)
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: self-hosted
+    environment:
+      name: staging
+      url: http://localhost:8081
     steps:
       - uses: actions/checkout@v4
 
@@ -47,25 +53,47 @@ jobs:
         run: |
           docker build \
             -t test-ci-cd-app:${{ github.sha }} \
-            -t test-ci-cd-app:latest \
+            -t test-ci-cd-app:staging \
             .
 
-      - name: Replace running container
+      - name: Replace staging container
+        run: |
+          docker rm -f test-ci-cd-app-staging 2>/dev/null || true
+          docker run -d \
+            --name test-ci-cd-app-staging \
+            --restart unless-stopped \
+            -p 8081:80 \
+            test-ci-cd-app:${{ github.sha }}
+
+      - name: Smoke test staging
+        run: |
+          sleep 3
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 http://localhost:8081 > /dev/null
+          echo "Staging OK: http://localhost:8081"
+
+  deploy-prod:
+    name: Deploy to prod (port 8080)
+    needs: deploy-staging
+    runs-on: self-hosted
+    environment:
+      name: production
+      url: http://localhost:8080
+    steps:
+      - name: Tag image as prod
+        run: docker tag test-ci-cd-app:${{ github.sha }} test-ci-cd-app:prod
+
+      - name: Replace prod container
         run: |
           docker rm -f test-ci-cd-app 2>/dev/null || true
+          docker rm -f test-ci-cd-app-prod 2>/dev/null || true
           docker run -d \
-            --name test-ci-cd-app \
+            --name test-ci-cd-app-prod \
             --restart unless-stopped \
             -p 8080:80 \
-            test-ci-cd-app:latest
+            test-ci-cd-app:${{ github.sha }}
 
-      - name: Smoke test
+      - name: Smoke test prod
         run: |
           sleep 3
           curl --fail --silent --show-error --retry 5 --retry-delay 2 http://localhost:8080 > /dev/null
-          echo "Deployment OK: http://localhost:8080"
-
-      - name: Prune old images
-        if: success()
-        run: |
-          docker image prune -f --filter "label!=keep" || true
+          echo "Prod OK: http://localhost:8080"
