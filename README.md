@@ -25,6 +25,8 @@ pnpm install
 pnpm dev          # http://localhost:5173
 pnpm lint         # ESLint
 pnpm format:check # Prettier check
+pnpm test         # Vitest（一次性）
+pnpm test:watch   # Vitest（watch 模式）
 pnpm build        # 產出 dist/
 ```
 
@@ -123,7 +125,7 @@ git push origin main
 
 | Job      | 觸發           | 動作                                                                             |
 | -------- | -------------- | -------------------------------------------------------------------------------- |
-| `lint`   | push + PR      | `pnpm install` → `pnpm lint` → `pnpm format:check`                               |
+| `verify` | push + PR      | `pnpm install` → `pnpm lint` → `pnpm format:check` → `pnpm test`                 |
 | `deploy` | push 到 `main` | `docker build` → 重啟容器 (`docker rm -f` + `docker run -d`) → `curl` smoke test |
 
 部署策略：**直接砍舊容器再起新的**（`--restart unless-stopped`）。Image tag 同時打 `:latest` 與 `:<git-sha>` 方便回滾（`docker run ... test-ci-cd-app:<sha>`）。

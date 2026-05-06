@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  lint:
-    name: Lint & format check
+  verify:
+    name: Lint, format, test
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
@@ -32,9 +32,12 @@ jobs:
       - name: Prettier check
         run: pnpm format:check
 
+      - name: Vitest
+        run: pnpm test
+
   deploy:
     name: Build image & deploy on local runner
-    needs: lint
+    needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: self-hosted
     steps:
